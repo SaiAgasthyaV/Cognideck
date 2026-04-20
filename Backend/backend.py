@@ -44,7 +44,7 @@ async def generate(file: UploadFile = File(...)):
         chunks = prepare_text(text)
 
         # 🔥 LIMIT CHUNKS (CRITICAL)
-        chunks = chunks[:12]
+        chunks = chunks[:5]
 
         print(f"🧩 Using chunks: {len(chunks)}")
 
