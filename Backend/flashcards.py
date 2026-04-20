@@ -8,19 +8,36 @@ MODEL_NAME = "gemini-3.1-flash-lite-preview"
 
 
 # -------------------------
-# 🔒 SAFE JSON PARSER
+# 🔒 STRONG SAFE JSON PARSER (FIXED)
 # -------------------------
 def safe_json_parse(text: str):
+    # Try normal parse
     try:
         return json.loads(text)
     except:
-        # Extract JSON block if extra text exists
-        match = re.search(r'\[.*\]|\{.*\}', text, re.DOTALL)
-        if match:
-            try:
-                return json.loads(match.group())
-            except:
-                return None
+        pass
+
+    # Try extracting array first
+    match = re.search(r'\[.*\]', text, re.DOTALL)
+    if match:
+        try:
+            return json.loads(match.group())
+        except:
+            pass
+
+    # Try extracting object
+    match = re.search(r'\{.*\}', text, re.DOTALL)
+    if match:
+        try:
+            return json.loads(match.group())
+        except:
+            pass
+
+    # LAST RESORT: wrap loose JSON
+    try:
+        fixed = f"[{text.strip()}]"
+        return json.loads(fixed)
+    except:
         return None
 
 
@@ -28,27 +45,22 @@ FLASHCARD_PROMPT_TEMPLATE = dedent("""
 You are an expert educator designing HIGH-IMPACT, deep-dive flashcards.
 
 GOAL:
-Group cards by Concept. For each Concept, create a mini-set of cards covering different angles.
+Group cards by Concept.
 
 STRICT RULES:
 - Identify key concepts in the text.
-- For each concept, generate at least 4-6 cards.
-- Each concept MUST include minimally: 1 definition, 1 why, 1 scenario, and 1 follow-up card (where `isFollowUp` is true).
-- A follow-up card must sequentially follow the card it relates to.
-- Answers must be high quality.
-- DO NOT create purely definitional decks.
-- Grade the difficulty: Easy, Medium, or Hard.
-- Allowed values for `type`: "definition", "explanation", "how", "why", "example", "scenario", "edge_case", "comparison".
-- Calculate a "coverage_percentage" and list "missing_coverage_areas".
+- 4–6 cards per concept
+- Must include: definition, why, scenario, follow-up
+- DO NOT create shallow decks
 
-Return ONLY raw JSON. No markdown. No explanation. No extra text.
+Return ONLY valid JSON array. Do not omit brackets. No extra text.
 
 FORMAT:
 [
   {
     "concept": "Concept Name",
     "coverage_percentage": 85,
-    "missing_coverage_areas": ["integrations"],
+    "missing_coverage_areas": [],
     "cards": [
       {
         "type": "definition",
@@ -67,18 +79,12 @@ TEXT:
 
 
 MISSING_CARDS_PROMPT_TEMPLATE = dedent("""
-You are an expert educator filling knowledge gaps.
+You are filling knowledge gaps.
 
 CONCEPT: {concept}
 MISSING AREAS: {missing_areas}
 
-RULES:
-- Focus ONLY on missing areas
-- Generate 3-4 cards
-- All cards must be "coverage_expansion"
-- Make them challenging
-
-Return ONLY raw JSON. No markdown. No explanation.
+Return ONLY valid JSON array. No extra text.
 
 FORMAT:
 [
@@ -100,7 +106,7 @@ def clean_chunk(text: str):
     if len(text) < 200:
         return ""
 
-    return text[:2000]
+    return text[:1500]  # 🔥 reduced size → better output
 
 
 def dedupe(concepts_data):
@@ -158,10 +164,9 @@ def generate_missing_coverage_cards(concept: str, missing_areas: list):
 
     client = genai.Client(api_key=api_key)
 
-    missing_areas_str = ", ".join(missing_areas)
     prompt = MISSING_CARDS_PROMPT_TEMPLATE.format(
         concept=concept,
-        missing_areas=missing_areas_str
+        missing_areas=", ".join(missing_areas)
     )
 
     try:
@@ -174,7 +179,7 @@ def generate_missing_coverage_cards(concept: str, missing_areas: list):
         data = safe_json_parse(response.text)
 
         if not data:
-            print("⚠️ Missing cards JSON parse failed")
+            print("⚠️ Missing cards parse failed")
             return []
 
         return data
@@ -185,66 +190,40 @@ def generate_missing_coverage_cards(concept: str, missing_areas: list):
 
 
 # -------------------------
-# 🔥 SOCRATIC HINT
+# 🔥 HINT
 # -------------------------
-HINT_PROMPT_TEMPLATE = dedent("""
-You are a Socratic tutor.
-Give a short guiding hint WITHOUT revealing the answer.
-
-QUESTION: {question}
-ANSWER: {answer}
-""").strip()
-
-
 def generate_socratic_hint(question: str, answer: str) -> str:
     api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        raise ValueError("GEMINI_API_KEY not set")
-
     client = genai.Client(api_key=api_key)
 
     try:
         response = client.models.generate_content(
             model=MODEL_NAME,
-            contents=HINT_PROMPT_TEMPLATE.format(
-                question=question,
-                answer=answer
-            )
+            contents=f"Give a hint without revealing answer:\nQ:{question}\nA:{answer}"
         )
         return response.text.strip()
-
-    except Exception as e:
-        print("❌ HINT ERROR:", str(e))
+    except:
         return "Think about the core idea..."
 
 
 # -------------------------
 # 🔥 BOSS FIGHT
 # -------------------------
-BOSS_FIGHT_PROMPT_TEMPLATE = dedent("""
-Create a complex scenario combining these concepts:
+def generate_boss_fight(concepts: list) -> dict:
+    api_key = os.getenv("GEMINI_API_KEY")
+    client = genai.Client(api_key=api_key)
 
+    prompt = f"""
+Create a complex scenario using:
 {concepts}
 
 Return ONLY JSON:
-{
+{{
   "scenario": "...",
   "question": "...",
-  "solution_guide": ["...", "..."]
-}
-""").strip()
-
-
-def generate_boss_fight(concepts: list) -> dict:
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        raise ValueError("GEMINI_API_KEY not set")
-
-    client = genai.Client(api_key=api_key)
-
-    prompt = BOSS_FIGHT_PROMPT_TEMPLATE.format(
-        concepts="\n- " + "\n- ".join(concepts)
-    )
+  "solution_guide": ["..."]
+}}
+"""
 
     try:
         response = client.models.generate_content(
@@ -256,7 +235,7 @@ def generate_boss_fight(concepts: list) -> dict:
         data = safe_json_parse(response.text)
 
         if not data:
-            print("⚠️ Boss fight JSON parse failed")
+            print("⚠️ Boss fight parse failed")
             return {}
 
         return data
