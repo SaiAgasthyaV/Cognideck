@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+python-multipart
+pypdf==6.10.0
+python-docx
+pydantic
+google-genai
+streamlit==1.56.0
+openai

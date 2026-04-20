@@ -1,0 +1,9 @@
+.vendor/
+.venv/
+__pycache__/
+*.pyc
+node_modules/
+.next/
+.env
+.env.*
+!.env.example
