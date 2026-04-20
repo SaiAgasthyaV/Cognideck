@@ -185,6 +185,8 @@
   },
   "active": "36beff63749f8177",
   "lastOpenFiles": [
+    "public/Logo.png",
+    "public",
     "Legacy/app.py",
     "Legacy",
     "New folder",
@@ -194,8 +196,6 @@
     "Backend/backend.py",
     "Backend/app.py",
     "Backend",
-    "netlify.toml",
-    "node_modules/framer-motion/package.json",
     "node_modules/framer-motion/dom/README.md",
     "node_modules/motion-dom/LICENSE.md",
     "node_modules/framer-motion/client/README.md",
