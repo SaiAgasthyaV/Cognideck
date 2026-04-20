@@ -41,20 +41,20 @@ Return ONLY valid JSON array. No extra text.
 
 FORMAT:
 [
-  {
+  {{
     "concept": "Concept Name",
     "coverage_percentage": 85,
     "missing_coverage_areas": [],
     "cards": [
-      {
+      {{
         "type": "definition",
         "difficulty": "Easy",
         "question": "...",
         "answer": "...",
         "isFollowUp": false
-      }
+      }}
     ]
-  }
+  }}
 ]
 
 TEXT:
