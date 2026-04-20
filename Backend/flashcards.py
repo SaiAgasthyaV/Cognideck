@@ -1,23 +1,19 @@
 import os
 import json
 import re
+import time
 from textwrap import dedent
 from google import genai
 
 MODEL_NAME = "gemini-3.1-flash-lite-preview"
 
 
-# -------------------------
-# 🔒 STRONG SAFE JSON PARSER (FIXED)
-# -------------------------
 def safe_json_parse(text: str):
-    # Try normal parse
     try:
         return json.loads(text)
     except:
         pass
 
-    # Try extracting array first
     match = re.search(r'\[.*\]', text, re.DOTALL)
     if match:
         try:
@@ -25,7 +21,6 @@ def safe_json_parse(text: str):
         except:
             pass
 
-    # Try extracting object
     match = re.search(r'\{.*\}', text, re.DOTALL)
     if match:
         try:
@@ -33,27 +28,16 @@ def safe_json_parse(text: str):
         except:
             pass
 
-    # LAST RESORT: wrap loose JSON
     try:
-        fixed = f"[{text.strip()}]"
-        return json.loads(fixed)
+        return json.loads(f"[{text.strip()}]")
     except:
         return None
 
 
 FLASHCARD_PROMPT_TEMPLATE = dedent("""
-You are an expert educator designing HIGH-IMPACT, deep-dive flashcards.
+You are an expert educator designing HIGH-IMPACT flashcards.
 
-GOAL:
-Group cards by Concept.
-
-STRICT RULES:
-- Identify key concepts in the text.
-- 4–6 cards per concept
-- Must include: definition, why, scenario, follow-up
-- DO NOT create shallow decks
-
-Return ONLY valid JSON array. Do not omit brackets. No extra text.
+Return ONLY valid JSON array. No extra text.
 
 FORMAT:
 [
@@ -75,155 +59,65 @@ FORMAT:
 
 TEXT:
 {chunk}
-""").strip()
-
-
-MISSING_CARDS_PROMPT_TEMPLATE = dedent("""
-You are filling knowledge gaps.
-
-CONCEPT: {concept}
-MISSING AREAS: {missing_areas}
-
-Return ONLY valid JSON array. No extra text.
-
-FORMAT:
-[
-  {
-    "type": "coverage_expansion",
-    "difficulty": "Hard",
-    "question": "...",
-    "answer": "...",
-    "isFollowUp": false
-  }
-]
-""").strip()
+""")
 
 
 def clean_chunk(text: str):
-    text = text.replace("\n", " ")
     text = " ".join(text.split())
-
     if len(text) < 200:
         return ""
-
-    return text[:1500]  # 🔥 reduced size → better output
-
-
-def dedupe(concepts_data):
-    return concepts_data
+    return text[:1500]
 
 
-# -------------------------
-# 🔥 FLASHCARD GENERATION
-# -------------------------
 def generate_flashcards(chunk: str):
     api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        raise ValueError("GEMINI_API_KEY not set")
-
     client = genai.Client(api_key=api_key)
 
     cleaned = clean_chunk(chunk)
     if not cleaned:
         return []
 
-    prompt = FLASHCARD_PROMPT_TEMPLATE.replace("{chunk}", cleaned)
+    prompt = FLASHCARD_PROMPT_TEMPLATE.format(chunk=cleaned)
 
-    try:
-        response = client.models.generate_content(
-            model=MODEL_NAME,
-            contents=prompt,
-            config={"response_mime_type": "application/json"}
-        )
+    for attempt in range(3):
+        try:
+            response = client.models.generate_content(
+                model=MODEL_NAME,
+                contents=prompt,
+                config={"response_mime_type": "application/json"}
+            )
 
-        raw_text = response.text
+            data = safe_json_parse(response.text)
 
-        if os.getenv("DEBUG_AI_OUTPUT") == "1":
-            print("\nRAW OUTPUT:\n", raw_text[:500])
+            if not data:
+                print("⚠️ JSON parse failed")
+                return []
 
-        data = safe_json_parse(raw_text)
+            print("✅ Chunk success")
+            return data
 
-        if not data:
-            print("⚠️ JSON parse failed")
-            return []
+        except Exception as e:
+            if "503" in str(e):
+                wait = 2 * (attempt + 1)
+                print(f"⚠️ 503 → retry in {wait}s")
+                time.sleep(wait)
+            else:
+                print("❌ FLASHCARD ERROR:", str(e))
+                return []
 
-        return dedupe(data)
-
-    except Exception as e:
-        print("❌ FLASHCARD ERROR:", str(e))
-        return []
+    return []
 
 
-# -------------------------
-# 🔥 MISSING COVERAGE
-# -------------------------
 def generate_missing_coverage_cards(concept: str, missing_areas: list):
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        raise ValueError("GEMINI_API_KEY not set")
-
-    client = genai.Client(api_key=api_key)
-
-    prompt = (
-        MISSING_CARDS_PROMPT_TEMPLATE
-        .replace("{concept}", concept)
-        .replace("{missing_areas}", ", ".join(missing_areas))
-    )
-
-    try:
-        response = client.models.generate_content(
-            model=MODEL_NAME,
-            contents=prompt,
-            config={"response_mime_type": "application/json"}
-        )
-
-        data = safe_json_parse(response.text)
-
-        if not data:
-            print("⚠️ Missing cards parse failed")
-            return []
-
-        return data
-
-    except Exception as e:
-        print("❌ MISSING FLASHCARD ERROR:", str(e))
-        return []
-
-
-# -------------------------
-# 🔥 HINT
-# -------------------------
-def generate_socratic_hint(question: str, answer: str) -> str:
-    api_key = os.getenv("GEMINI_API_KEY")
-    client = genai.Client(api_key=api_key)
-
-    try:
-        response = client.models.generate_content(
-            model=MODEL_NAME,
-            contents=f"Give a hint without revealing answer:\nQ:{question}\nA:{answer}"
-        )
-        return response.text.strip()
-    except:
-        return "Think about the core idea..."
-
-
-# -------------------------
-# 🔥 BOSS FIGHT
-# -------------------------
-def generate_boss_fight(concepts: list) -> dict:
     api_key = os.getenv("GEMINI_API_KEY")
     client = genai.Client(api_key=api_key)
 
     prompt = f"""
-Create a complex scenario using:
-{concepts}
+Generate advanced flashcards for:
+Concept: {concept}
+Missing: {missing_areas}
 
-Return ONLY JSON:
-{{
-  "scenario": "...",
-  "question": "...",
-  "solution_guide": ["..."]
-}}
+Return JSON array only.
 """
 
     try:
@@ -232,15 +126,7 @@ Return ONLY JSON:
             contents=prompt,
             config={"response_mime_type": "application/json"}
         )
-
-        data = safe_json_parse(response.text)
-
-        if not data:
-            print("⚠️ Boss fight parse failed")
-            return {}
-
-        return data
-
+        return safe_json_parse(response.text) or []
     except Exception as e:
-        print("❌ BOSS FIGHT ERROR:", str(e))
-        return {}
+        print("❌ Missing ERROR:", e)
+        return []
