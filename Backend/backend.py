@@ -1,4 +1,5 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
+from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from pypdf import PdfReader
 from io import BytesIO
@@ -82,7 +83,11 @@ async def generate(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class GenerateMissingRequest(BaseModel):
+    concept: str
+    missing_areas: list
+
 @app.post("/generate_missing")
-async def generate_missing(req):
+async def generate_missing(req: GenerateMissingRequest):
     cards = generate_missing_coverage_cards(req.concept, req.missing_areas)
     return {"cards": cards or []}
