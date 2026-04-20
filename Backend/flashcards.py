@@ -127,7 +127,7 @@ def generate_flashcards(chunk: str):
     if not cleaned:
         return []
 
-    prompt = FLASHCARD_PROMPT_TEMPLATE.format(chunk=cleaned)
+    prompt = FLASHCARD_PROMPT_TEMPLATE.replace("{chunk}", cleaned)
 
     try:
         response = client.models.generate_content(
@@ -164,9 +164,10 @@ def generate_missing_coverage_cards(concept: str, missing_areas: list):
 
     client = genai.Client(api_key=api_key)
 
-    prompt = MISSING_CARDS_PROMPT_TEMPLATE.format(
-        concept=concept,
-        missing_areas=", ".join(missing_areas)
+    prompt = (
+        MISSING_CARDS_PROMPT_TEMPLATE
+        .replace("{concept}", concept)
+        .replace("{missing_areas}", ", ".join(missing_areas))
     )
 
     try:
