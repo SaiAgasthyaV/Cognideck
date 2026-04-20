@@ -2,8 +2,8 @@ import re
 from collections import Counter
 
 
-MIN_CHUNK_WORDS = 500
-MAX_CHUNK_WORDS = 1000
+MIN_CHUNK_WORDS = 800   # 🔥 increased
+MAX_CHUNK_WORDS = 2000  # 🔥 increased
 
 COPYRIGHT_PATTERNS = (
     r"\bcopyright\b",
@@ -50,15 +50,23 @@ def prepare_text(text: str) -> list[str]:
         cleaned_lines.append(line)
 
     paragraphs = _lines_to_paragraphs(cleaned_lines)
+
     cleaned_paragraphs = [
         paragraph
         for paragraph in paragraphs
         if not _is_copyright_or_legal(paragraph) and not _is_noisy_paragraph(paragraph)
     ]
 
-    return _chunk_paragraphs(cleaned_paragraphs)
+    chunks = _chunk_paragraphs(cleaned_paragraphs)
+
+    print(f"🧩 Final chunks: {len(chunks)}")  # debug
+
+    return chunks
 
 
+# -------------------------
+# CLEANING
+# -------------------------
 def _normalize_text(text: str) -> str:
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     text = re.sub(r"(\w)-\n(\w)", r"\1\2", text)
@@ -158,9 +166,12 @@ def _looks_like_short_heading(line: str) -> bool:
     return capitalized_words >= max(1, len(words) - 1)
 
 
+# -------------------------
+# PARAGRAPH BUILDING
+# -------------------------
 def _lines_to_paragraphs(lines: list[str]) -> list[str]:
-    paragraphs: list[str] = []
-    current: list[str] = []
+    paragraphs = []
+    current = []
 
     for line in lines:
         if not line:
@@ -197,13 +208,12 @@ def _is_noisy_paragraph(paragraph: str) -> bool:
     return False
 
 
-def _chunk_paragraphs(
-    paragraphs: list[str],
-    min_words: int = MIN_CHUNK_WORDS,
-    max_words: int = MAX_CHUNK_WORDS,
-) -> list[str]:
-    chunks: list[str] = []
-    current_parts: list[str] = []
+# -------------------------
+# 🔥 CHUNKING (FIXED)
+# -------------------------
+def _chunk_paragraphs(paragraphs: list[str]) -> list[str]:
+    chunks = []
+    current_parts = []
     current_words = 0
 
     for paragraph in paragraphs:
@@ -211,45 +221,33 @@ def _chunk_paragraphs(
         if paragraph_words == 0:
             continue
 
-        if paragraph_words > max_words:
+        if paragraph_words > MAX_CHUNK_WORDS:
             if current_parts:
                 chunks.append("\n\n".join(current_parts).strip())
                 current_parts = []
                 current_words = 0
 
-            long_parts = _split_long_paragraph(paragraph, max_words)
-            chunks.extend(long_parts[:-1])
-
-            if long_parts:
-                last_part = long_parts[-1]
-                last_part_words = _word_count(last_part)
-                if last_part_words >= min_words or not chunks:
-                    chunks.append(last_part)
-                else:
-                    current_parts = [last_part]
-                    current_words = last_part_words
+            chunks.extend(_split_long_paragraph(paragraph, MAX_CHUNK_WORDS))
             continue
 
-        would_exceed_max = current_words + paragraph_words > max_words
-        if current_parts and would_exceed_max and current_words >= min_words:
+        if current_parts and (current_words + paragraph_words > MAX_CHUNK_WORDS):
             chunks.append("\n\n".join(current_parts).strip())
             current_parts = [paragraph]
             current_words = paragraph_words
-            continue
-
-        current_parts.append(paragraph)
-        current_words += paragraph_words
+        else:
+            current_parts.append(paragraph)
+            current_words += paragraph_words
 
     if current_parts:
-        final_chunk = "\n\n".join(current_parts).strip()
-        final_words = _word_count(final_chunk)
+        chunks.append("\n\n".join(current_parts).strip())
 
-        if chunks and final_words < max(150, min_words // 2):
-            chunks[-1] = f"{chunks[-1]}\n\n{final_chunk}".strip()
-        else:
-            chunks.append(final_chunk)
+    # 🔥 HARD LIMIT (CRITICAL FIX)
+    MAX_CHUNKS = 30
+    if len(chunks) > MAX_CHUNKS:
+        print(f"⚠️ Limiting chunks from {len(chunks)} → {MAX_CHUNKS}")
+        chunks = chunks[:MAX_CHUNKS]
 
-    return [chunk for chunk in chunks if chunk]
+    return chunks
 
 
 def _split_long_paragraph(paragraph: str, max_words: int) -> list[str]:
@@ -257,46 +255,33 @@ def _split_long_paragraph(paragraph: str, max_words: int) -> list[str]:
     if len(sentences) == 1:
         return _split_by_words(paragraph, max_words)
 
-    parts: list[str] = []
-    current_sentences: list[str] = []
+    parts = []
+    current = []
     current_words = 0
 
     for sentence in sentences:
-        sentence_words = _word_count(sentence)
-        if sentence_words == 0:
-            continue
+        words = _word_count(sentence)
 
-        if sentence_words > max_words:
-            if current_sentences:
-                parts.append(" ".join(current_sentences).strip())
-                current_sentences = []
-                current_words = 0
-            parts.extend(_split_by_words(sentence, max_words))
-            continue
+        if current and current_words + words > max_words:
+            parts.append(" ".join(current).strip())
+            current = [sentence]
+            current_words = words
+        else:
+            current.append(sentence)
+            current_words += words
 
-        if current_sentences and current_words + sentence_words > max_words:
-            parts.append(" ".join(current_sentences).strip())
-            current_sentences = [sentence]
-            current_words = sentence_words
-            continue
-
-        current_sentences.append(sentence)
-        current_words += sentence_words
-
-    if current_sentences:
-        parts.append(" ".join(current_sentences).strip())
+    if current:
+        parts.append(" ".join(current).strip())
 
     return parts
 
 
 def _split_by_words(text: str, max_words: int) -> list[str]:
     words = text.split()
-    parts: list[str] = []
-
-    for start in range(0, len(words), max_words):
-        parts.append(" ".join(words[start : start + max_words]).strip())
-
-    return parts
+    return [
+        " ".join(words[i:i + max_words]).strip()
+        for i in range(0, len(words), max_words)
+    ]
 
 
 def _word_count(text: str) -> int:
