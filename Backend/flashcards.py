@@ -5,7 +5,7 @@ import time
 from textwrap import dedent
 from google import genai
 
-MODEL_NAME = "gemini-3.1-flash-lite-preview"
+MODEL_NAME = "gemini-2.5-flash"
 
 
 def safe_json_parse(text: str):
@@ -97,7 +97,7 @@ def generate_flashcards(chunk: str):
             return data
 
         except Exception as e:
-            if "503" in str(e):
+            if "503" in str(e) or "429" in str(e):
                 wait = 2 * (attempt + 1)
                 print(f"⚠️ 503 → retry in {wait}s")
                 time.sleep(wait)

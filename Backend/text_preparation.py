@@ -2,8 +2,8 @@ import re
 from collections import Counter
 
 
-MIN_CHUNK_WORDS = 800   # 🔥 increased
-MAX_CHUNK_WORDS = 2000  # 🔥 increased
+MIN_CHUNK_WORDS = 1500   # 🔥 increased
+MAX_CHUNK_WORDS = 3500  # 🔥 increased
 
 COPYRIGHT_PATTERNS = (
     r"\bcopyright\b",
@@ -242,7 +242,7 @@ def _chunk_paragraphs(paragraphs: list[str]) -> list[str]:
         chunks.append("\n\n".join(current_parts).strip())
 
     # 🔥 HARD LIMIT (CRITICAL FIX)
-    MAX_CHUNKS = 30
+    MAX_CHUNKS = 12
     if len(chunks) > MAX_CHUNKS:
         print(f"⚠️ Limiting chunks from {len(chunks)} → {MAX_CHUNKS}")
         chunks = chunks[:MAX_CHUNKS]
